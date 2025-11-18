@@ -54,14 +54,32 @@ echo ""
 
 # Check Eclipse
 echo "Checking Eclipse..."
-if [ -d "/home/krish/Projects/RP/eclipse" ] && [ -f "/home/krish/Projects/RP/eclipse/eclipse" ]; then
-    echo "✓ Eclipse found in /home/krish/Projects/RP/eclipse"
-    if [ -x "/home/krish/Projects/RP/eclipse/eclipse" ]; then
+ECLIPSE_FOUND=false
+ECLIPSE_PATH=""
+
+# Check in current working directory
+if [ -d "./eclipse" ] && [ -f "./eclipse/eclipse" ]; then
+    ECLIPSE_FOUND=true
+    ECLIPSE_PATH="./eclipse"
+# Check in parent directory
+elif [ -d "../eclipse" ] && [ -f "../eclipse/eclipse" ]; then
+    ECLIPSE_FOUND=true
+    ECLIPSE_PATH="../eclipse"
+fi
+
+if [ "$ECLIPSE_FOUND" = true ]; then
+    ECLIPSE_ABS_PATH=$(cd "$ECLIPSE_PATH" && pwd)
+    echo "✓ Eclipse found in $ECLIPSE_ABS_PATH"
+    if [ -x "$ECLIPSE_PATH/eclipse" ]; then
         echo "  Eclipse is executable"
+    else
+        echo "⚠ Eclipse found but is not executable"
+        echo "  Fix with: chmod +x $ECLIPSE_PATH/eclipse"
     fi
 else
-    echo "✗ Eclipse not found in /home/krish/Projects/RP/eclipse"
-    echo "  Download from: https://www.eclipse.org/downloads/packages/release/2025-06"
+    echo "✗ Eclipse not found in current directory or parent directory"
+    echo "  Run install_dependencies.sh to install Eclipse"
+    echo "  Or download from: https://www.eclipse.org/downloads/packages/release/2025-06"
     echo "  Or: https://www.eclipse.org/downloads/packages/release/2024-06"
 fi
 echo ""
@@ -87,4 +105,3 @@ fi
 echo ""
 
 echo "=== Check Complete ==="
-

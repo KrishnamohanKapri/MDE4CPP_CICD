@@ -49,10 +49,66 @@ if [ -d "gradlePlugins" ]; then
     (./application/tools/gradlew publishMDE4CPPPluginsToMavenLocal >/dev/null 2>&1 || true)
 fi
 
+# Function to clean CMake cache files and build artifacts
+# Preserves application/lib and application/bin directories
+clean_cmake_cache() {
+    echo "Cleaning CMake cache files and build artifacts..."
+    echo "----------------------------------------"
+    
+    local cleaned_count=0
+    
+    # Find and remove all .cmake directories (excluding application/lib and application/bin)
+    while IFS= read -r -d '' dir; do
+        # Skip if inside application/lib or application/bin
+        if [[ "$dir" != *"/application/lib"* ]] && [[ "$dir" != *"/application/bin"* ]]; then
+            echo "  Removing: $dir"
+            rm -rf "$dir"
+            ((cleaned_count++))
+        fi
+    done < <(find . -type d -name ".cmake" -print0 2>/dev/null)
+    
+    # Find and remove all CMakeCache.txt files
+    while IFS= read -r -d '' file; do
+        if [[ "$file" != *"/application/lib"* ]] && [[ "$file" != *"/application/bin"* ]]; then
+            echo "  Removing: $file"
+            rm -f "$file"
+            ((cleaned_count++))
+        fi
+    done < <(find . -type f -name "CMakeCache.txt" -print0 2>/dev/null)
+    
+    # Find and remove all CMakeFiles directories
+    while IFS= read -r -d '' dir; do
+        if [[ "$dir" != *"/application/lib"* ]] && [[ "$dir" != *"/application/bin"* ]]; then
+            echo "  Removing: $dir"
+            rm -rf "$dir"
+            ((cleaned_count++))
+        fi
+    done < <(find . -type d -name "CMakeFiles" -print0 2>/dev/null)
+    
+    # Find and remove all src_gen directories (for fresh code generation)
+    while IFS= read -r -d '' dir; do
+        if [[ "$dir" != *"/application/lib"* ]] && [[ "$dir" != *"/application/bin"* ]]; then
+            echo "  Removing: $dir"
+            rm -rf "$dir"
+            ((cleaned_count++))
+        fi
+    done < <(find . -type d -name "src_gen" -print0 2>/dev/null)
+    
+    if [ $cleaned_count -eq 0 ]; then
+        echo "  No cache files found to clean."
+    else
+        echo "  Cleaned $cleaned_count cache directories/files."
+    fi
+    echo ""
+}
+
 echo "=========================================="
 echo "MDE4CPP Sequential Build Script"
 echo "=========================================="
 echo ""
+
+# Clean CMake cache files before building
+clean_cmake_cache
 
 # Step 1: Generate all models
 echo "Step 1/3: Running generateAll..."
