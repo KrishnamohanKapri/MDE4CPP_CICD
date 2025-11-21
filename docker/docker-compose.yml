@@ -1,0 +1,22 @@
+services:
+  mde4cpp:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: mde4cpp:latest
+    container_name: mde4cpp-container
+    working_dir: /home/mde4cpp
+    stdin_open: true
+    tty: true
+    volumes:
+      # Persistent storage for all project data
+      - mde4cpp-data:/home/mde4cpp
+    develop:
+      watch: []
+    # entrypoint: ["/bin/bash"]
+    command: ["/bin/bash", "-i", "-l"]
+
+volumes:
+  mde4cpp-data:
+    driver: local
+    name: mde4cpp-data
