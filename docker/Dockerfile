@@ -32,7 +32,7 @@ USER root
 WORKDIR /home/mde4cpp
 
 # Clone MDE4CPP Cross-Compilation repository
-RUN git clone -b main https://github.com/KrishnamohanKapri/MDE4CPP_Cross_Compilation.git /tmp/mde4cpp-repo && \
+RUN git clone -b main https://github.com/KrishnamohanKapri/MDE4CPP_CICD.git /tmp/mde4cpp-repo && \
     bash -c 'shopt -s dotglob && mv /tmp/mde4cpp-repo/* /home/mde4cpp/' && \
     rmdir /tmp/mde4cpp-repo
 
@@ -153,13 +153,19 @@ export CPP_IDE_EXECUTABLE=$MDE4CPP_ECLIPSE_HOME
 # cd $MDE4CPP_HOME
 EOF
 
-RUN chmod +x /home/mde4cpp/setenv
+# Strip any CRLF line endings from setenv (Windows compatibility)
+RUN sed -i 's/\r$//' /home/mde4cpp/setenv && chmod +x /home/mde4cpp/setenv
+
+# Strip CRLF from properties file if it exists (Windows compatibility)
+RUN if [ -f /home/mde4cpp/MDE4CPP_Generator.properties ]; then \
+        sed -i 's/\r$//' /home/mde4cpp/MDE4CPP_Generator.properties; \
+    fi
 
 # Make gradlew executable
 RUN cd /home/mde4cpp && chmod +x ./application/tools/gradlew
 
 # Build Gradle plugins first (verified - required before building metamodels)
-RUN cd /home/mde4cpp && . ./setenv && ./application/tools/gradlew gradlePlugins:publishMDE4CPPPluginsToMavenLocal
+RUN cd /home/mde4cpp && . ./setenv && cd /home/mde4cpp/gradlePlugins && ../application/tools/gradlew publishMDE4CPPPluginsToMavenLocal --no-daemon
 
 # Create all generators (verified - must be done before buildAll)
 RUN cd /home/mde4cpp && . ./setenv && ./application/tools/gradlew createAllGenerators --no-daemon
@@ -174,10 +180,10 @@ RUN if [ ! -f /home/mde4cpp/application/generator/ecore4CPP.jar ] || \
     echo "✓ Generators created successfully"
 
 # Generate all models (matching buildAll.sh)
-RUN cd /home/mde4cpp && . ./setenv && ./application/tools/gradlew generateAll --stacktrace --no-daemon
+RUN cd /home/mde4cpp && . ./setenv && ./application/tools/gradlew generateAll --no-daemon
 
 # Compile all generated code (matching buildAll.sh)
-RUN cd /home/mde4cpp && . ./setenv && ./application/tools/gradlew compileAll --stacktrace --no-daemon
+RUN cd /home/mde4cpp && . ./setenv && ./application/tools/gradlew compileAll --no-daemon
 
 # Build OCL components (matching buildAll.sh)
 RUN cd /home/mde4cpp && . ./setenv && ./application/tools/gradlew src:buildOCLAll --no-daemon

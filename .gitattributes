@@ -1,0 +1,12 @@
+# Force LF line endings for shell scripts and Dockerfiles
+*.sh text eol=lf
+*.bash text eol=lf
+Dockerfile text eol=lf
+docker/Dockerfile text eol=lf
+*.properties text eol=lf
+setenv text eol=lf
+setenv.* text eol=lf
+
+# Ensure all text files use LF
+* text=auto eol=lf
+
