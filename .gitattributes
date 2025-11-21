@@ -4,6 +4,7 @@
 Dockerfile text eol=lf
 docker/Dockerfile text eol=lf
 *.properties text eol=lf
+*.gradle text eol=lf
 setenv text eol=lf
 setenv.* text eol=lf
 

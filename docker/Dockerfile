@@ -182,6 +182,14 @@ RUN if [ ! -f /home/mde4cpp/application/generator/ecore4CPP.jar ] || \
 # Generate all models (matching buildAll.sh)
 RUN cd /home/mde4cpp && . ./setenv && ./application/tools/gradlew generateAll --no-daemon
 
+# Fix line endings for ALL Gradle files in the project (comprehensive approach)
+# This ensures any Gradle file, whether generated or not, has LF line endings
+RUN find /home/mde4cpp -type f -name "*.gradle" \
+    -exec sed -i 's/\r$//' {} \; 2>/dev/null || true
+
+# Force Gradle to re-evaluate project structure
+RUN cd /home/mde4cpp && . ./setenv && ./application/tools/gradlew projects --no-daemon > /dev/null 2>&1 || true
+
 # Compile all generated code (matching buildAll.sh)
 RUN cd /home/mde4cpp && . ./setenv && ./application/tools/gradlew compileAll --no-daemon
 
