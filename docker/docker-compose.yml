@@ -1,22 +1,204 @@
+
+# ## Usage Guide:
+
+# ### 1. **Full Build** (only when `CROSS_COMPILE_WINDOWS` changes):
+# ```bash
+# docker compose --profile build-full up build-full
+# ```
+
+# ### 2. **Individual Gradle Tasks**:
+# ```bash
+# # Publish plugins
+# docker compose up publish-plugins
+
+# # Generate all models
+# docker compose up generate
+
+# # Compile all generated code
+# docker compose up compile
+
+# # Build OCL components
+# docker compose up build-ocl
+# ```
+
+# ### 3. **Interactive Shell** (detached mode):
+# ```bash
+# # Start container in background
+# docker compose up -d shell
+
+# # Enter the container
+# docker compose exec shell bash
+
+# # When done, exit the shell (container keeps running)
+# exit
+
+# # Stop the container when you're done
+# docker compose stop shell
+# ```
+
+# ## Notes:
+
+# 1. **`build-full` service**: Uses a profile (`build-full`) so it only runs when explicitly requested. This prevents accidental full rebuilds.
+# 2. **All services share the same image**: They all use `mde4cpp:latest` to avoid rebuilding.
+# 3. **`shell` service**: Runs `tail -f /dev/null` to keep the container alive in detached mode, allowing you to `exec` into it anytime.
+
 services:
-  mde4cpp:
+  # Full build service - Run this only when CROSS_COMPILE_WINDOWS changes in MDE4CPP_Generator.properties
+  # Usage: docker compose --profile build-full up build-full
+  build-full:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     image: mde4cpp:latest
-    container_name: mde4cpp-container
+    container_name: mde4cpp-build-full
     working_dir: /home/mde4cpp
     stdin_open: true
     tty: true
     volumes:
-      # Persistent storage for all project data
-      - mde4cpp-data:/home/mde4cpp
-    develop:
-      watch: []
-    # entrypoint: ["/bin/bash"]
-    command: ["/bin/bash", "-i", "-l"]
+      - ../:/home/mde4cpp
+    profiles:
+      - build-full
+    command: >
+      /bin/bash -c "
+      cd /home/mde4cpp &&
+      if [ ! -f setenv ]; then
+        echo 'Creating setenv from setenv.default...' &&
+        cp setenv.default setenv &&
+        sed -i 's|MDE4CPP_HOME=\\$PWD|MDE4CPP_HOME=/home/mde4cpp|' setenv &&
+        sed -i 's|MDE4CPP_ECLIPSE_HOME=~.*|MDE4CPP_ECLIPSE_HOME=/home/mde4cpp/eclipse|' setenv &&
+        sed -i 's|ORG_GRADLE_PROJECT_WORKER=1|ORG_GRADLE_PROJECT_WORKER=3|' setenv &&
+        sed -i '/cd \\.\\/gradlePlugins/,/cd \\$MDE4CPP_HOME/d' setenv &&
+        sed -i '/^# bash$/d; /^bash$/d' setenv &&
+        chmod +x setenv &&
+        echo '✓ setenv created and configured'
+      else
+        echo '✓ setenv already exists, using existing file'
+      fi &&
+      . ./setenv &&
+      ./buildAll.sh &&
+      echo '✓ Build complete!'
+      "
 
-volumes:
-  mde4cpp-data:
-    driver: local
-    name: mde4cpp-data
+  # Publish Gradle plugins to Maven local
+  # Usage: docker compose up publish-plugins
+  publish-plugins:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: mde4cpp:latest
+    container_name: mde4cpp-publish-plugins
+    working_dir: /home/mde4cpp
+    volumes:
+      - ../:/home/mde4cpp
+    command: >
+      /bin/bash -c "
+      cd /home/mde4cpp &&
+      if [ ! -f setenv ]; then
+        cp setenv.default setenv &&
+        sed -i 's|MDE4CPP_HOME=\\$PWD|MDE4CPP_HOME=/home/mde4cpp|' setenv &&
+        sed -i 's|MDE4CPP_ECLIPSE_HOME=~.*|MDE4CPP_ECLIPSE_HOME=/home/mde4cpp/eclipse|' setenv &&
+        sed -i 's|ORG_GRADLE_PROJECT_WORKER=1|ORG_GRADLE_PROJECT_WORKER=3|' setenv &&
+        sed -i '/cd \\.\\/gradlePlugins/,/cd \\$MDE4CPP_HOME/d' setenv &&
+        sed -i '/^# bash$/d; /^bash$/d' setenv &&
+        chmod +x setenv
+      fi &&
+      . ./setenv &&
+      ./application/tools/gradlew gradlePlugins:publishMDE4CPPPluginsToMavenLocal --no-daemon
+      "
+
+  # Generate all models
+  # Usage: docker compose up generate
+  generate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: mde4cpp:latest
+    container_name: mde4cpp-generate
+    working_dir: /home/mde4cpp
+    volumes:
+      - ../:/home/mde4cpp
+    command: >
+      /bin/bash -c "
+      cd /home/mde4cpp &&
+      if [ ! -f setenv ]; then
+        cp setenv.default setenv &&
+        sed -i 's|MDE4CPP_HOME=\\$PWD|MDE4CPP_HOME=/home/mde4cpp|' setenv &&
+        sed -i 's|MDE4CPP_ECLIPSE_HOME=~.*|MDE4CPP_ECLIPSE_HOME=/home/mde4cpp/eclipse|' setenv &&
+        sed -i 's|ORG_GRADLE_PROJECT_WORKER=1|ORG_GRADLE_PROJECT_WORKER=3|' setenv &&
+        sed -i '/cd \\.\\/gradlePlugins/,/cd \\$MDE4CPP_HOME/d' setenv &&
+        sed -i '/^# bash$/d; /^bash$/d' setenv &&
+        chmod +x setenv
+      fi &&
+      . ./setenv &&
+      ./application/tools/gradlew generateAll --no-daemon
+      "
+
+  # Compile all generated code
+  # Usage: docker compose up compile
+  compile:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: mde4cpp:latest
+    container_name: mde4cpp-compile
+    working_dir: /home/mde4cpp
+    volumes:
+      - ../:/home/mde4cpp
+    command: >
+      /bin/bash -c "
+      cd /home/mde4cpp &&
+      if [ ! -f setenv ]; then
+        cp setenv.default setenv &&
+        sed -i 's|MDE4CPP_HOME=\\$PWD|MDE4CPP_HOME=/home/mde4cpp|' setenv &&
+        sed -i 's|MDE4CPP_ECLIPSE_HOME=~.*|MDE4CPP_ECLIPSE_HOME=/home/mde4cpp/eclipse|' setenv &&
+        sed -i 's|ORG_GRADLE_PROJECT_WORKER=1|ORG_GRADLE_PROJECT_WORKER=3|' setenv &&
+        sed -i '/cd \\.\\/gradlePlugins/,/cd \\$MDE4CPP_HOME/d' setenv &&
+        sed -i '/^# bash$/d; /^bash$/d' setenv &&
+        chmod +x setenv
+      fi &&
+      . ./setenv &&
+      ./application/tools/gradlew compileAll --no-daemon
+      "
+
+  # Build OCL components
+  # Usage: docker compose up build-ocl
+  build-ocl:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: mde4cpp:latest
+    container_name: mde4cpp-build-ocl
+    working_dir: /home/mde4cpp
+    volumes:
+      - ../:/home/mde4cpp
+    command: >
+      /bin/bash -c "
+      cd /home/mde4cpp &&
+      if [ ! -f setenv ]; then
+        cp setenv.default setenv &&
+        sed -i 's|MDE4CPP_HOME=\\$PWD|MDE4CPP_HOME=/home/mde4cpp|' setenv &&
+        sed -i 's|MDE4CPP_ECLIPSE_HOME=~.*|MDE4CPP_ECLIPSE_HOME=/home/mde4cpp/eclipse|' setenv &&
+        sed -i 's|ORG_GRADLE_PROJECT_WORKER=1|ORG_GRADLE_PROJECT_WORKER=3|' setenv &&
+        sed -i '/cd \\.\\/gradlePlugins/,/cd \\$MDE4CPP_HOME/d' setenv &&
+        sed -i '/^# bash$/d; /^bash$/d' setenv &&
+        chmod +x setenv
+      fi &&
+      . ./setenv &&
+      ./application/tools/gradlew src:buildOCLAll --no-daemon
+      "
+
+  # Interactive shell service - runs in detached mode
+  # Usage: 
+  #   1. docker compose up -d shell
+  #   2. docker compose exec shell bash
+  shell:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: mde4cpp:latest
+    container_name: mde4cpp-shell
+    working_dir: /home/mde4cpp
+    volumes:
+      - ../:/home/mde4cpp
+    command: /bin/bash -c "tail -f /dev/null"
+    # Keep container running indefinitely for exec access
