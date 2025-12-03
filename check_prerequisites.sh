@@ -84,24 +84,4 @@ else
 fi
 echo ""
 
-# Check MDE4CPP repository
-echo "Checking MDE4CPP repository..."
-if [ -d "MDE4CPP" ] && [ -f "MDE4CPP/setenv.default" ]; then
-    echo "✓ MDE4CPP repository found"
-    if [ -f "MDE4CPP/application/tools/gradlew" ]; then
-        if [ -x "MDE4CPP/application/tools/gradlew" ]; then
-            echo "✓ gradlew is executable"
-        else
-            echo "⚠ gradlew exists but is not executable"
-            echo "  Fix with: chmod +x MDE4CPP/application/tools/gradlew"
-        fi
-    else
-        echo "⚠ gradlew not found (expected after cloning)"
-    fi
-else
-    echo "✗ MDE4CPP repository not found"
-    echo "  Clone with: git clone https://github.com/MDE4CPP/MDE4CPP.git"
-fi
-echo ""
-
 echo "=== Check Complete ==="

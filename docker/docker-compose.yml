@@ -2,12 +2,19 @@
 # ## Usage Guide:
 
 # ### 1. **Full Build** (only when `CROSS_COMPILE_WINDOWS` changes):
-# ```bash
-# docker compose --profile build-full up build-full
-# ```
-
-# ### 2. **Individual Gradle Tasks**:
-# ```bash
+#
+# docker compose up build-full
+# 
+# ### 2. **Install Dependencies** (Eclipse, system packages, etc.):
+#
+# docker compose up install-dependencies
+#
+# ### 3. **Clean Build Artifacts** (CMake cache, generated files):
+#
+# docker compose up clean
+#
+# ### 4. **Individual Gradle Tasks**:
+#
 # # Publish plugins
 # docker compose up publish-plugins
 
@@ -19,10 +26,9 @@
 
 # # Build OCL components
 # docker compose up build-ocl
-# ```
-
-# ### 3. **Interactive Shell** (detached mode):
-# ```bash
+#
+# ### 5. **Interactive Shell** (detached mode):
+#
 # # Start container in background
 # docker compose up -d shell
 
@@ -34,17 +40,17 @@
 
 # # Stop the container when you're done
 # docker compose stop shell
-# ```
+# # ## Notes:
 
-# ## Notes:
-
-# 1. **`build-full` service**: Uses a profile (`build-full`) so it only runs when explicitly requested. This prevents accidental full rebuilds.
-# 2. **All services share the same image**: They all use `mde4cpp:latest` to avoid rebuilding.
-# 3. **`shell` service**: Runs `tail -f /dev/null` to keep the container alive in detached mode, allowing you to `exec` into it anytime.
+# 1. **`build-full` service**: Runs the complete build process (install dependencies, generate, compile, build OCL). Only run when `CROSS_COMPILE_WINDOWS` changes in `MDE4CPP_Generator.properties`.
+# 2. **`install-dependencies` service**: Installs Eclipse and system dependencies. Skips if Eclipse is already installed.
+# 3. **`clean` service**: Removes CMake cache files, build artifacts, and `src_gen` directories. Preserves `application/lib` and `application/bin`.
+# 4. **All services share the same image**: They all use `mde4cpp:latest` to avoid rebuilding.
+# 5. **`shell` service**: Runs `tail -f /dev/null` to keep the container alive in detached mode, allowing you to `exec` into it anytime.
 
 services:
   # Full build service - Run this only when CROSS_COMPILE_WINDOWS changes in MDE4CPP_Generator.properties
-  # Usage: docker compose --profile build-full up build-full
+  # Usage: docker compose up build-full
   build-full:
     build:
       context: ..
@@ -56,11 +62,16 @@ services:
     tty: true
     volumes:
       - ../:/home/mde4cpp
-    profiles:
-      - build-full
     command: >
       /bin/bash -c "
       cd /home/mde4cpp &&
+      if [ ! -f /home/mde4cpp/eclipse/eclipse ]; then
+        echo 'Running install_dependencies.sh as root...' &&
+        sudo ./install_dependencies.sh &&
+        echo '✓ Dependencies installed'
+      else
+        echo '✓ Dependencies already installed'
+      fi &&
       if [ ! -f setenv ]; then
         echo 'Creating setenv from setenv.default...' &&
         cp setenv.default setenv &&
@@ -77,6 +88,86 @@ services:
       . ./setenv &&
       ./buildAll.sh &&
       echo '✓ Build complete!'
+      "
+
+  # Install dependencies (Eclipse, system packages, etc.)
+  # Usage: docker compose up install-dependencies
+  install-dependencies:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: mde4cpp:latest
+    container_name: mde4cpp-install-dependencies
+    working_dir: /home/mde4cpp
+    volumes:
+      - ../:/home/mde4cpp
+    command: >
+      /bin/bash -c "
+      cd /home/mde4cpp &&
+      if [ ! -f /home/mde4cpp/eclipse/eclipse ]; then
+        echo 'Running install_dependencies.sh as root...' &&
+        sudo ./install_dependencies.sh &&
+        echo '✓ Dependencies installed successfully'
+      else
+        echo '✓ Dependencies already installed (Eclipse found)'
+      fi
+      "
+
+  # Clean CMake cache files and build artifacts
+  # Preserves application/lib and application/bin directories
+  # Usage: docker compose up clean
+  clean:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: mde4cpp:latest
+    container_name: mde4cpp-clean
+    working_dir: /home/mde4cpp
+    volumes:
+      - ../:/home/mde4cpp
+    command: >
+      /bin/bash -c "
+      cd /home/mde4cpp &&
+      set +e &&
+      echo 'Cleaning CMake cache files and build artifacts...' &&
+      echo '----------------------------------------' &&
+      cleaned_count=0 &&
+      while IFS= read -r -d '' dir; do
+        if [[ \"\$dir\" != *\"/application/lib\"* ]] && [[ \"\$dir\" != *\"/application/bin\"* ]]; then
+          echo \"  Removing: \$dir\" &&
+          rm -rf \"\$dir\" 2>/dev/null || true &&
+          cleaned_count=\$((cleaned_count + 1))
+        fi
+      done < <(find . -type d -name \".cmake\" -print0 2>/dev/null || true) &&
+      while IFS= read -r -d '' file; do
+        if [[ \"\$file\" != *\"/application/lib\"* ]] && [[ \"\$file\" != *\"/application/bin\"* ]]; then
+          echo \"  Removing: \$file\" &&
+          rm -f \"\$file\" 2>/dev/null || true &&
+          cleaned_count=\$((cleaned_count + 1))
+        fi
+      done < <(find . -type f -name \"CMakeCache.txt\" -print0 2>/dev/null || true) &&
+      while IFS= read -r -d '' dir; do
+        if [[ \"\$dir\" != *\"/application/lib\"* ]] && [[ \"\$dir\" != *\"/application/bin\"* ]]; then
+          echo \"  Removing: \$dir\" &&
+          rm -rf \"\$dir\" 2>/dev/null || true &&
+          cleaned_count=\$((cleaned_count + 1))
+        fi
+      done < <(find . -type d -name \"CMakeFiles\" -print0 2>/dev/null || true) &&
+      while IFS= read -r -d '' dir; do
+        if [[ \"\$dir\" != *\"/application/lib\"* ]] && [[ \"\$dir\" != *\"/application/bin\"* ]]; then
+          echo \"  Removing: \$dir\" &&
+          rm -rf \"\$dir\" 2>/dev/null || true &&
+          cleaned_count=\$((cleaned_count + 1))
+        fi
+      done < <(find . -type d -name \"src_gen\" -print0 2>/dev/null || true) &&
+      set -e &&
+      if [ \$cleaned_count -eq 0 ]; then
+        echo '  No cache files found to clean.'
+      else
+        echo \"  Cleaned \$cleaned_count cache directories/files.\"
+      fi &&
+      echo '' &&
+      echo '✓ Cleanup complete!'
       "
 
   # Publish Gradle plugins to Maven local
