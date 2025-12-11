@@ -1,0 +1,124 @@
+name: CI Build
+
+on:
+  pull_request:
+    branches: [development, integration, master]
+    paths:
+      - 'src/**'
+      - 'generator/**'
+      - 'docker/**'
+      - 'gradlePlugins/**'
+      - '.github/workflows/**'
+  push:
+    branches: [development, integration, master]
+    paths:
+      - 'src/**'
+      - 'generator/**'
+      - 'docker/**'
+      - 'gradlePlugins/**'
+
+jobs:
+  detect-and-trigger:
+    runs-on: ubuntu-latest
+    outputs:
+      components: ${{ steps.detect.outputs.components }}
+      build_sequence: ${{ steps.resolve.outputs.sequence }}
+      should_build: ${{ steps.detect.outputs.should_build }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for change detection
+      
+      - name: Make scripts executable
+        run: |
+          chmod +x .github/workflows/scripts/*.sh
+      
+      - name: Detect changed components
+        id: detect
+        run: |
+          COMPONENTS=$(./.github/workflows/scripts/detect-components.sh)
+          
+          if [ -z "$COMPONENTS" ]; then
+            echo "No relevant components changed. Skipping build."
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "components=" >> $GITHUB_OUTPUT
+          else
+            echo "Detected changed components: $COMPONENTS"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "components=$COMPONENTS" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Resolve dependencies and build sequence
+        id: resolve
+        if: steps.detect.outputs.should_build == 'true'
+        run: |
+          CHANGED="${{ steps.detect.outputs.components }}"
+          SEQUENCE=$(./.github/workflows/scripts/resolve-dependencies.sh "$CHANGED")
+          
+          if [ -z "$SEQUENCE" ]; then
+            echo "No build sequence determined. Skipping."
+            echo "sequence=" >> $GITHUB_OUTPUT
+          else
+            echo "Build sequence: $SEQUENCE"
+            echo "sequence=$SEQUENCE" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Display build plan
+        if: steps.detect.outputs.should_build == 'true'
+        run: |
+          echo "## Build Plan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Changed Components:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.detect.outputs.components }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Sequence (with dependencies):**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.resolve.outputs.sequence }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+  
+  trigger-runner:
+    needs: detect-and-trigger
+    if: needs.detect-and-trigger.outputs.should_build == 'true' && needs.detect-and-trigger.outputs.build_sequence != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger self-hosted runner
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const components = '${{ needs.detect-and-trigger.outputs.build_sequence }}';
+            const prNumber = context.payload.pull_request?.number || '';
+            const commitSha = context.sha;
+            
+            console.log(`Triggering runner workflow with components: ${components}`);
+            console.log(`PR Number: ${prNumber}`);
+            console.log(`Commit SHA: ${commitSha}`);
+            
+            try {
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'runner-build.yml',
+                ref: context.ref,
+                inputs: {
+                  components: components,
+                  pr_number: prNumber || '',
+                  commit_sha: commitSha,
+                  event_type: context.eventName
+                }
+              });
+              console.log('Successfully triggered runner workflow');
+            } catch (error) {
+              console.error('Error triggering workflow:', error);
+              throw error;
+            }
+      
+      - name: Display trigger status
+        run: |
+          echo "✅ Successfully triggered runner workflow"
+          echo "The build will execute on the self-hosted runner"
+          echo "Check the 'Actions' tab to monitor the build progress"
+

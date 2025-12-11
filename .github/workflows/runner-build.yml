@@ -1,0 +1,194 @@
+name: Runner Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      components:
+        description: 'Space-separated component list in build order'
+        required: true
+        type: string
+      pr_number:
+        description: 'PR number for feedback'
+        required: false
+        type: string
+      commit_sha:
+        description: 'Commit SHA to checkout'
+        required: true
+        type: string
+      event_type:
+        description: 'Event type (pull_request or push)'
+        required: false
+        type: string
+        default: 'workflow_dispatch'
+
+jobs:
+  build-components:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+      
+      - name: Parse components
+        id: parse
+        run: |
+          COMPONENTS="${{ inputs.components }}"
+          echo "Components to build: $COMPONENTS"
+          
+          # Convert space-separated to array
+          COMPONENT_ARRAY=($COMPONENTS)
+          echo "Number of components: ${#COMPONENT_ARRAY[@]}"
+          
+          # Store as JSON array for later use
+          echo "components=$(echo $COMPONENTS | tr ' ' '\n' | jq -R . | jq -s .)" >> $GITHUB_OUTPUT
+      
+      - name: Setup environment
+        run: |
+          echo "Setting up build environment..."
+          cd docker
+          docker compose config > /dev/null || echo "Docker Compose config check passed"
+      
+      - name: Build components sequentially
+        id: build
+        run: |
+          cd docker
+          COMPONENTS="${{ inputs.components }}"
+          FAILED_COMPONENTS=""
+          SUCCESSFUL_COMPONENTS=""
+          
+          # Convert space-separated to array
+          read -ra COMPONENT_ARRAY <<< "$COMPONENTS"
+          
+          for component in "${COMPONENT_ARRAY[@]}"; do
+            echo "=========================================="
+            echo "Building component: $component"
+            echo "=========================================="
+            
+            # Determine service names based on component
+            GENERATE_SERVICE="generate-${component}"
+            COMPILE_SERVICE="compile-${component}"
+            BUILD_SERVICE="build-${component}"
+            
+            # Check if services exist in docker-compose.yml
+            if docker compose config --services | grep -q "^${GENERATE_SERVICE}$"; then
+              echo "Running generate service: $GENERATE_SERVICE"
+              if docker compose up --build "$GENERATE_SERVICE"; then
+                echo "✓ Generate succeeded for $component"
+              else
+                echo "✗ Generate failed for $component"
+                FAILED_COMPONENTS="$FAILED_COMPONENTS $component"
+                continue
+              fi
+            fi
+            
+            if docker compose config --services | grep -q "^${COMPILE_SERVICE}$"; then
+              echo "Running compile service: $COMPILE_SERVICE"
+              if docker compose up --build "$COMPILE_SERVICE"; then
+                echo "✓ Compile succeeded for $component"
+              else
+                echo "✗ Compile failed for $component"
+                FAILED_COMPONENTS="$FAILED_COMPONENTS $component"
+                continue
+              fi
+            elif docker compose config --services | grep -q "^${BUILD_SERVICE}$"; then
+              # Some components only have build service (generators, infrastructure)
+              echo "Running build service: $BUILD_SERVICE"
+              if docker compose up --build "$BUILD_SERVICE"; then
+                echo "✓ Build succeeded for $component"
+              else
+                echo "✗ Build failed for $component"
+                FAILED_COMPONENTS="$FAILED_COMPONENTS $component"
+                continue
+              fi
+            else
+              echo "Warning: No service found for component $component"
+              echo "Available services:"
+              docker compose config --services | grep -E "(generate|compile|build)-" | head -10
+            fi
+            
+            SUCCESSFUL_COMPONENTS="$SUCCESSFUL_COMPONENTS $component"
+          done
+          
+          # Output results
+          echo "successful_components=$SUCCESSFUL_COMPONENTS" >> $GITHUB_OUTPUT
+          echo "failed_components=$FAILED_COMPONENTS" >> $GITHUB_OUTPUT
+          
+          # Fail if any component failed
+          if [ -n "$FAILED_COMPONENTS" ]; then
+            echo "Failed components: $FAILED_COMPONENTS"
+            exit 1
+          fi
+      
+      - name: Build summary
+        if: always()
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ **All components built successfully**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Built components:**" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.build.outputs.successful_components }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Build failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Failed components:**" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.build.outputs.failed_components }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Successful components:**" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.build.outputs.successful_components }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Post PR comment
+        if: github.event_name == 'pull_request' || inputs.pr_number != ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = '${{ inputs.pr_number || github.event.pull_request.number }}';
+            const status = '${{ job.status }}';
+            const successful = '${{ steps.build.outputs.successful_components }}';
+            const failed = '${{ steps.build.outputs.failed_components }}';
+            
+            if (!prNumber) {
+              console.log('No PR number available, skipping comment');
+              return;
+            }
+            
+            let body = '## 🔨 Build Results\n\n';
+            
+            if (status === 'success') {
+              body += '✅ **All components built successfully!**\n\n';
+              body += `**Built components:** ${successful || 'N/A'}\n`;
+            } else {
+              body += '❌ **Build failed**\n\n';
+              if (failed) {
+                body += `**Failed components:** ${failed}\n`;
+              }
+              if (successful) {
+                body += `**Successful components:** ${successful}\n`;
+              }
+            }
+            
+            body += `\n**Commit:** ${context.sha.substring(0, 7)}\n`;
+            body += `**Workflow:** [View details](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n`;
+            
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: body
+              });
+            } catch (error) {
+              console.error('Error posting comment:', error);
+            }
+
