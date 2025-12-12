@@ -33,6 +33,23 @@ jobs:
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
           echo "Using project directory: $PROJECT_DIR"
       
+      - name: Save current state (last known good commit)
+        id: save_state
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          # Save current commit before updating
+          CURRENT_COMMIT=$(git rev-parse HEAD)
+          echo "last_good_commit=$CURRENT_COMMIT" >> $GITHUB_OUTPUT
+          echo "LAST_GOOD_COMMIT=$CURRENT_COMMIT" >> $GITHUB_ENV
+          echo "Saved current commit (last known good): $CURRENT_COMMIT"
+          # Also try to get main branch commit as fallback
+          git fetch origin main 2>/dev/null || true
+          MAIN_COMMIT=$(git rev-parse origin/main 2>/dev/null || echo "")
+          if [ -n "$MAIN_COMMIT" ]; then
+            echo "main_commit=$MAIN_COMMIT" >> $GITHUB_ENV
+            echo "Main branch commit: $MAIN_COMMIT"
+          fi
+      
       - name: Update existing repository
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
@@ -154,6 +171,61 @@ jobs:
             exit 1
           fi
       
+      - name: Recover on failure (revert to last known good commit)
+        if: failure()
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          echo "❌ Build failed! Recovering to last known good state..."
+          
+          # Determine recovery commit (prefer last good, fallback to main)
+          if [ -n "${{ env.LAST_GOOD_COMMIT }}" ]; then
+            RECOVERY_COMMIT="${{ env.LAST_GOOD_COMMIT }}"
+            echo "Reverting to last known good commit: $RECOVERY_COMMIT"
+          elif [ -n "${{ env.main_commit }}" ]; then
+            RECOVERY_COMMIT="${{ env.main_commit }}"
+            echo "Reverting to main branch: $RECOVERY_COMMIT"
+          else
+            echo "⚠️  No recovery commit found. Trying to checkout main branch..."
+            git fetch origin main
+            RECOVERY_COMMIT="origin/main"
+          fi
+          
+          # Revert repository
+          git checkout $RECOVERY_COMMIT || git checkout -b recovery $RECOVERY_COMMIT
+          git reset --hard $RECOVERY_COMMIT
+          
+          echo "✅ Repository reverted to: $RECOVERY_COMMIT"
+          echo "Current commit: $(git rev-parse HEAD)"
+          
+          # Rebuild to restore artifacts
+          echo "Rebuilding to restore working artifacts..."
+          cd docker
+          
+          # Get the components that were supposed to be built
+          COMPONENTS="${{ inputs.components }}"
+          read -ra COMPONENT_ARRAY <<< "$COMPONENTS"
+          
+          for component in "${COMPONENT_ARRAY[@]}"; do
+            echo "Rebuilding component: $component"
+            
+            GENERATE_SERVICE="generate-${component}"
+            COMPILE_SERVICE="compile-${component}"
+            BUILD_SERVICE="build-${component}"
+            
+            # Try to rebuild the component
+            if docker compose config --services | grep -q "^${GENERATE_SERVICE}$"; then
+              docker compose up --build "$GENERATE_SERVICE" || echo "Generate failed for $component"
+            fi
+            
+            if docker compose config --services | grep -q "^${COMPILE_SERVICE}$"; then
+              docker compose up --build "$COMPILE_SERVICE" || echo "Compile failed for $component"
+            elif docker compose config --services | grep -q "^${BUILD_SERVICE}$"; then
+              docker compose up --build "$BUILD_SERVICE" || echo "Build failed for $component"
+            fi
+          done
+          
+          echo "✅ Recovery complete. Repository and artifacts restored to working state."
+      
       - name: Build summary
         if: always()
         run: |
@@ -169,6 +241,8 @@ jobs:
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ **Build failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **Repository has been reverted to last known good commit and artifacts have been rebuilt.**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**Failed components:**" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
