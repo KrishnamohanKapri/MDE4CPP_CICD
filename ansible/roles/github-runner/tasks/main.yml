@@ -20,9 +20,14 @@
     - (runner_token | default('')) == ""
   tags: github-runner
 
-- name: Ensure project directory exists
+- name: Set runner path variable
+  set_fact:
+    runner_path: "{{ runner_path | default(project_path + '/actions-runner') }}"
+  tags: github-runner
+
+- name: Ensure runner parent directory exists
   file:
-    path: "{{ project_path }}"
+    path: "{{ runner_path | dirname }}"
     state: directory
     mode: '0755'
     owner: "{{ ansible_user }}"
@@ -31,7 +36,7 @@
 
 - name: Create GitHub Runner directory
   file:
-    path: "{{ project_path }}/actions-runner"
+    path: "{{ runner_path }}"
     state: directory
     mode: '0755'
     owner: "{{ ansible_user }}"
@@ -40,13 +45,13 @@
 
 - name: Check if GitHub Runner directory exists
   stat:
-    path: "{{ project_path }}/actions-runner"
+    path: "{{ runner_path }}"
   register: runner_dir_exists
   tags: github-runner
 
 - name: Check if GitHub Runner is already installed
   stat:
-    path: "{{ project_path }}/actions-runner/run.sh"
+    path: "{{ runner_path }}/run.sh"
   register: runner_installed
   tags: github-runner
 
@@ -72,11 +77,11 @@
 - name: Extract GitHub Runner
   unarchive:
     src: /tmp/actions-runner.tar.gz
-    dest: "{{ project_path }}/actions-runner"
+    dest: "{{ runner_path }}"
     remote_src: yes
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
-    creates: "{{ project_path }}/actions-runner/run.sh"
+    creates: "{{ runner_path }}/run.sh"
     list_files: no
   when: 
     - not runner_installed.stat.exists
@@ -101,23 +106,23 @@
 
 - name: Check if runner is already configured
   stat:
-    path: "{{ project_path }}/actions-runner/.runner"
+    path: "{{ runner_path }}/.runner"
   register: runner_configured
   tags: github-runner
 
 - name: Configure GitHub Runner
   shell: |
-    cd {{ project_path }}/actions-runner
+    cd {{ runner_path }}
     ./config.sh \
       --url https://github.com/KrishnamohanKapri/MDE4CPP_CICD \
       --token {{ runner_token }} \
       --name {{ runner_name }} \
       --labels {{ runner_labels }} \
-      --work {{ project_path }}/actions-runner/_work \
+      --work {{ runner_path }}/_work \
       --unattended \
       --replace
   args:
-    creates: "{{ project_path }}/actions-runner/.runner"
+    creates: "{{ runner_path }}/.runner"
   when: not runner_configured.stat.exists
   become_user: "{{ ansible_user }}"
   tags: github-runner
@@ -130,7 +135,7 @@
 
 - name: Install GitHub Runner service
   shell: |
-    cd {{ project_path }}/actions-runner
+    cd {{ runner_path }}
     sudo ./svc.sh install
   args:
     creates: "/etc/systemd/system/actions.runner.{{ runner_name | replace(' ', '-') }}.{{ runner_name | replace(' ', '-') }}.service"
@@ -167,7 +172,7 @@
 - name: Display GitHub Runner status
   debug:
     msg:
-      - "GitHub Runner installed at {{ project_path }}/actions-runner"
+      - "GitHub Runner installed at {{ runner_path }}"
       - "Runner name: {{ runner_name }}"
       - "Runner labels: {{ runner_labels }}"
       - "Service status: {{ runner_service_status.status.ActiveState if (runner_service_status is defined and runner_service_status.status is defined) else 'N/A (service not installed yet)' }}"

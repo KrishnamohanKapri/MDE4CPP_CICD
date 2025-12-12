@@ -1297,7 +1297,7 @@ services:
     image: mde4cpp:latest
     container_name: mde4cpp-compile-foundational-model-library
     working_dir: /home/mde4cpp
-volumes:
+    volumes:
       - ../:/home/mde4cpp
     command: >
       /bin/bash -c "
