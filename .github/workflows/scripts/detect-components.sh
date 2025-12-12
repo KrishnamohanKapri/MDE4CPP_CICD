@@ -9,7 +9,17 @@ if [ -n "$GITHUB_BASE_REF" ]; then
     # PR: compare against base branch
     BASE_REF="${GITHUB_BASE_REF}"
     HEAD_REF="${GITHUB_HEAD_REF:-$GITHUB_SHA}"
-    CHANGED_FILES=$(git diff --name-only "origin/${BASE_REF}...${HEAD_REF}" 2>/dev/null || git diff --name-only "${BASE_REF}...${HEAD_REF}")
+    
+    # Fetch the base branch first to ensure it's available
+    git fetch origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}" 2>/dev/null || \
+    git fetch origin "${BASE_REF}" 2>/dev/null || true
+    
+    # Try multiple diff patterns to handle different git configurations
+    CHANGED_FILES=$(git diff --name-only "origin/${BASE_REF}...${HEAD_REF}" 2>/dev/null || \
+                    git diff --name-only "${BASE_REF}...${HEAD_REF}" 2>/dev/null || \
+                    git diff --name-only "origin/${BASE_REF}..${HEAD_REF}" 2>/dev/null || \
+                    git diff --name-only "${BASE_REF}..${HEAD_REF}" 2>/dev/null || \
+                    echo "")
 else
     # Push: compare against previous commit
     CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
