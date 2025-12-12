@@ -37,9 +37,25 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           echo "Updating repository to commit: ${{ inputs.commit_sha }}"
+          
+          # Check for uncommitted changes and handle them
+          if ! git diff-index --quiet HEAD --; then
+            echo "Warning: Uncommitted changes detected. Stashing them..."
+            git stash push -m "CI workflow stash $(date +%Y%m%d_%H%M%S)"
+          fi
+          
+          # Fetch latest changes
           git fetch origin
+          
+          # Checkout the specified commit
           git checkout ${{ inputs.commit_sha }} || git checkout -b temp-${{ inputs.commit_sha }} ${{ inputs.commit_sha }}
+          
+          # Reset to ensure clean state
           git reset --hard ${{ inputs.commit_sha }}
+          
+          # Clean any untracked files (optional, be careful with this)
+          git clean -fd || echo "Git clean skipped"
+          
           echo "Repository updated successfully"
           echo "Current commit: $(git rev-parse HEAD)"
           echo "Git status:"
