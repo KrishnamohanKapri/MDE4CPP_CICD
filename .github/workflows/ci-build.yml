@@ -2,7 +2,7 @@ name: CI Build
 
 on:
   pull_request:
-    branches: [development, integration, master]
+    branches: [main, development, integration, master]
     paths:
       - 'src/**'
       - 'generator/**'
@@ -10,7 +10,7 @@ on:
       - 'gradlePlugins/**'
       - '.github/workflows/**'
   push:
-    branches: [development, integration, master]
+    branches: [main, development, integration, master]
     paths:
       - 'src/**'
       - 'generator/**'
