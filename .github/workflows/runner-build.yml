@@ -111,6 +111,25 @@ jobs:
           # Convert space-separated to array
           read -ra COMPONENT_ARRAY <<< "$COMPONENTS"
           
+          # Check if "full" or "build-full" is requested
+          if [[ " ${COMPONENT_ARRAY[@]} " =~ " full " ]] || [[ " ${COMPONENT_ARRAY[@]} " =~ " build-full " ]]; then
+            echo "=========================================="
+            echo "Running full build (build-full service)"
+            echo "=========================================="
+            if docker compose up --build build-full; then
+              echo "✓ Full build succeeded"
+              echo "successful_components=full" >> $GITHUB_OUTPUT
+              echo "failed_components=" >> $GITHUB_OUTPUT
+            else
+              echo "✗ Full build failed"
+              echo "successful_components=" >> $GITHUB_OUTPUT
+              echo "failed_components=full" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+            exit 0
+          fi
+          
+          # Otherwise, build components individually
           for component in "${COMPONENT_ARRAY[@]}"; do
             echo "=========================================="
             echo "Building component: $component"
@@ -205,24 +224,31 @@ jobs:
           COMPONENTS="${{ inputs.components }}"
           read -ra COMPONENT_ARRAY <<< "$COMPONENTS"
           
-          for component in "${COMPONENT_ARRAY[@]}"; do
-            echo "Rebuilding component: $component"
-            
-            GENERATE_SERVICE="generate-${component}"
-            COMPILE_SERVICE="compile-${component}"
-            BUILD_SERVICE="build-${component}"
-            
-            # Try to rebuild the component
-            if docker compose config --services | grep -q "^${GENERATE_SERVICE}$"; then
-              docker compose up --build "$GENERATE_SERVICE" || echo "Generate failed for $component"
-            fi
-            
-            if docker compose config --services | grep -q "^${COMPILE_SERVICE}$"; then
-              docker compose up --build "$COMPILE_SERVICE" || echo "Compile failed for $component"
-            elif docker compose config --services | grep -q "^${BUILD_SERVICE}$"; then
-              docker compose up --build "$BUILD_SERVICE" || echo "Build failed for $component"
-            fi
-          done
+          # Check if full build was requested
+          if [[ " ${COMPONENT_ARRAY[@]} " =~ " full " ]] || [[ " ${COMPONENT_ARRAY[@]} " =~ " build-full " ]]; then
+            echo "Running full build to restore artifacts..."
+            docker compose up --build build-full || echo "Full build failed during recovery"
+          else
+            # Rebuild individual components
+            for component in "${COMPONENT_ARRAY[@]}"; do
+              echo "Rebuilding component: $component"
+              
+              GENERATE_SERVICE="generate-${component}"
+              COMPILE_SERVICE="compile-${component}"
+              BUILD_SERVICE="build-${component}"
+              
+              # Try to rebuild the component
+              if docker compose config --services | grep -q "^${GENERATE_SERVICE}$"; then
+                docker compose up --build "$GENERATE_SERVICE" || echo "Generate failed for $component"
+              fi
+              
+              if docker compose config --services | grep -q "^${COMPILE_SERVICE}$"; then
+                docker compose up --build "$COMPILE_SERVICE" || echo "Compile failed for $component"
+              elif docker compose config --services | grep -q "^${BUILD_SERVICE}$"; then
+                docker compose up --build "$BUILD_SERVICE" || echo "Build failed for $component"
+              fi
+            done
+          fi
           
           echo "✅ Recovery complete. Repository and artifacts restored to working state."
       
