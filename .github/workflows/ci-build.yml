@@ -102,7 +102,15 @@ jobs:
             const prNumber = context.payload.pull_request?.number || '';
             // Convert to string - workflow inputs must be strings
             const prNumberStr = prNumber ? String(prNumber) : '';
-            const commitSha = context.sha;
+            
+            // For PRs, use the head commit SHA (actual commit), not the merge commit
+            // For push events, use context.sha (the actual commit)
+            let commitSha;
+            if (context.eventName === 'pull_request') {
+              commitSha = context.payload.pull_request.head.sha;
+            } else {
+              commitSha = context.sha;
+            }
             
             // Determine the correct ref for workflow dispatch
             // For PRs, use the head branch; for push events, use context.ref

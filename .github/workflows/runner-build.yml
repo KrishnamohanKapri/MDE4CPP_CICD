@@ -61,8 +61,14 @@ jobs:
             git stash push -m "CI workflow stash $(date +%Y%m%d_%H%M%S)"
           fi
           
-          # Fetch latest changes
-          git fetch origin
+          # Fetch latest changes (including all branches and PR refs)
+          git fetch origin --all --prune
+          
+          # Try to fetch the specific commit if it's not found
+          if ! git cat-file -e ${{ inputs.commit_sha }} 2>/dev/null; then
+            echo "Commit not found locally, fetching from origin..."
+            git fetch origin ${{ inputs.commit_sha }}:${{ inputs.commit_sha }} || true
+          fi
           
           # Checkout the specified commit
           git checkout ${{ inputs.commit_sha }} || git checkout -b temp-${{ inputs.commit_sha }} ${{ inputs.commit_sha }}
