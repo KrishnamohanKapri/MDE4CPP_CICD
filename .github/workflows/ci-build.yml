@@ -100,6 +100,8 @@ jobs:
           script: |
             const components = '${{ needs.detect-and-trigger.outputs.build_sequence }}';
             const prNumber = context.payload.pull_request?.number || '';
+            // Convert to string - workflow inputs must be strings
+            const prNumberStr = prNumber ? String(prNumber) : '';
             const commitSha = context.sha;
             
             // Determine the correct ref for workflow dispatch
@@ -118,7 +120,7 @@ jobs:
             }
             
             console.log(`Triggering runner workflow with components: ${components}`);
-            console.log(`PR Number: ${prNumber}`);
+            console.log(`PR Number: ${prNumberStr}`);
             console.log(`Commit SHA: ${commitSha}`);
             console.log(`Using ref: ${workflowRef}`);
             
@@ -130,7 +132,7 @@ jobs:
                 ref: workflowRef,
                 inputs: {
                   components: components,
-                  pr_number: prNumber || '',
+                  pr_number: prNumberStr,
                   commit_sha: commitSha,
                   event_type: context.eventName
                 }
