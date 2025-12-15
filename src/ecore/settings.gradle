@@ -12,3 +12,4 @@ rootProject.name = 'ecore'
 include ':model'
 include ':src_gen'
 
+// Test CI trigger - Mo 15. Dez 12:46:05 CET 2025
