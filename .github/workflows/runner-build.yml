@@ -28,23 +28,41 @@ jobs:
       - name: Set project directory
         id: set_dir
         run: |
-          # Detect the current user running the runner
-          RUNNER_USER=$(whoami)
+          # Search for repository in common locations
+          # The runner may execute as root even if service runs as another user
+          POSSIBLE_PATHS=(
+            "/home/krish/Projects/MDE4CPP_CICD"
+            "/home/$(whoami)/Projects/MDE4CPP_CICD"
+            "$HOME/Projects/MDE4CPP_CICD"
+            "/opt/MDE4CPP_CICD"
+            "/var/lib/MDE4CPP_CICD"
+          )
           
-          # Try common project locations
-          if [ -d "/home/$RUNNER_USER/Projects/MDE4CPP_CICD" ]; then
-            PROJECT_DIR="/home/$RUNNER_USER/Projects/MDE4CPP_CICD"
-          elif [ -d "$HOME/Projects/MDE4CPP_CICD" ]; then
-            PROJECT_DIR="$HOME/Projects/MDE4CPP_CICD"
-          else
-            echo "❌ Error: Repository not found in expected locations"
-            echo "Searched: /home/$RUNNER_USER/Projects/MDE4CPP_CICD and $HOME/Projects/MDE4CPP_CICD"
-            exit 1
+          PROJECT_DIR=""
+          for path in "${POSSIBLE_PATHS[@]}"; do
+            if [ -d "$path/.git" ]; then
+              PROJECT_DIR="$path"
+              echo "Found repository at: $PROJECT_DIR"
+              break
+            fi
+          done
+          
+          # If still not found, try to find it using find command (limited to /home)
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Searching for repository in /home..."
+            FOUND_PATH=$(find /home -maxdepth 4 -type d -name "MDE4CPP_CICD" -path "*/.git" -prune -o -type d -name "MDE4CPP_CICD" -print 2>/dev/null | head -1)
+            if [ -n "$FOUND_PATH" ] && [ -d "$FOUND_PATH/.git" ]; then
+              PROJECT_DIR="$FOUND_PATH"
+              echo "Found repository via search: $PROJECT_DIR"
+            fi
           fi
           
-          # Verify it's a git repository
-          if [ ! -d "$PROJECT_DIR/.git" ]; then
-            echo "❌ Error: $PROJECT_DIR is not a git repository"
+          if [ -z "$PROJECT_DIR" ] || [ ! -d "$PROJECT_DIR/.git" ]; then
+            echo "❌ Error: Repository not found"
+            echo "Searched paths:"
+            printf '  - %s\n' "${POSSIBLE_PATHS[@]}"
+            echo "Current user: $(whoami)"
+            echo "HOME: $HOME"
             exit 1
           fi
           
